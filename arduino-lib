@@ -1,0 +1,92 @@
+#!/bin/bash
+
+# TODO: 
+# -incorporate globbing
+# - incorporate "--name" style options
+
+AUTHOR=""
+MAINTAINER=""
+NAME=""
+SEARCH_TERM=""
+
+show_help() {
+cat << EOF
+
+Usage: $(basename $0) [OPTIONS] <library name>
+
+This script is a wrapper for arduino-cli's lib search
+with additional functionality:
+  - Filter by library name, author, and maintainer
+  - Syntax highlighting on the library name
+
+OPTIONS:
+  -n, --name        Filter by library name
+  -a, --author      Filter by author
+  -m, --maintainer  Filter by maintainer
+  -h, --help        Display this help and exit
+
+EXAMPLE:
+  $(basename $0) -a Adafruit DHT22
+
+EOF
+}
+
+# Check for -h or --help argument
+if [[ "$1" == "-h" || "$1" == "--help" ]]; then
+    show_help
+    exit 0
+fi
+
+while [[ $# -gt 0 ]]; do
+    key="$1"
+    case $key in
+        -n|--name|--n)
+            NAME="$2"
+            shift 2
+            ;;
+        -a|--author|--a)
+            AUTHOR="$2"
+            shift 2
+            ;;
+        -m|--maintainer|--m)
+            MAINTAINER="$2"
+            shift 2
+            ;;
+        *)
+            if [[ -z $SEARCH_TERM ]]; then
+                SEARCH_TERM="$1"
+                shift
+            else
+                show_help
+                echo $'\e[31m[ERROR] Unknown argument:' $1$'\e[0m\n'
+                exit 1
+            fi
+            ;;
+    esac
+done
+
+OUTPUT=$(arduino-cli lib search "$SEARCH_TERM")
+OUTPUT=$(echo "$OUTPUT" | awk -v name="$NAME" -v author="$AUTHOR" -v maintainer="$MAINTAINER" 'BEGIN {
+    print_block=0; current_block=""; IGNORECASE=1
+}
+/^Name:/ {
+    if(print_block) {
+        print current_block
+    }
+    current_block=""; print_block=1
+}
+{
+    current_block=current_block $0 "\n"
+    if($0 ~ /^Name: / && name && tolower($0) !~ tolower(name)) print_block=0
+    if($0 ~ /^[ \t]*Author:/ && author) {
+        if(tolower($0) !~ tolower(author)) print_block=0
+        else print_block=1
+    }
+    if($0 ~ /^[ \t]*Maintainer:/ && maintainer && tolower($0) !~ tolower(maintainer)) print_block=0
+}
+END {
+    if(print_block) print current_block
+}')
+
+echo "$OUTPUT" | awk '/^[a-zA-Z]/ { printf "\033[1;36m" $0 "\033[0m\n" ; next }1'
+exit 0
